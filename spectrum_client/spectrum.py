@@ -25,7 +25,7 @@ class SpectrumClientParameterError(SpectrumClientException):
 
 class Spectrum(object):
     """A wrapper form OneClick REST API."""
-    headers = {'Content-Type': 'application/xml'}
+    headers = {'Content-Type': 'application/xml; charset=UTF-8'}
 
     xml_namespace = {'ca': 'http://www.ca.com/spectrum/restful/schema/response'}
     default_attributes = '''
@@ -93,6 +93,14 @@ class Spectrum(object):
             raise ValueError('Spectrum (OneClick) url must be provided either in the constructor or as an environment variable')
         self.url = url if not url.endswith('/') else url[:-1]
         self.auth = HTTPBasicAuth(username, password)
+        # SSL verification on a per connection basis
+        self.ssl_verify = True
+        # Keep generated xml for easy troubleshooting
+        self._xml = None
+
+    @property
+    def xml(self):
+        return self._xml
 
     def _parse_get(self, res):
         self._check_http_response(res)
@@ -180,8 +188,9 @@ class Spectrum(object):
             attr_id {int} -- Attribute ID of the attribute being queried.
         """
         url = '{}/spectrum/restful/model/{}'.format(self.url, hex(model_handle))
+        self._xml = None
         params = {'attr': hex(attr_id)}
-        res = requests.get(url, params=params, auth=self.auth)
+        res = requests.get(url, params=params, auth=self.auth, verify=self.ssl_verify)
         self._parse_get(res)
         root = ET.fromstring(res.content)
         return root.find('.//ca:attribute', self.xml_namespace).text
@@ -217,7 +226,8 @@ class Spectrum(object):
     def search_models(self, xml):
         """Returns the models matching the xml search"""
         url = '{}/spectrum/restful/models'.format(self.url)
-        res = requests.post(url, xml, headers=self.headers, auth=self.auth)
+        self._xml = xml
+        res = requests.post(url, self._xml, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
         self._check_http_response(res)
         root = ET.fromstring(res.content)
         etmodels = root.findall('.//ca:model', self.xml_namespace)
@@ -249,7 +259,8 @@ class Spectrum(object):
             )
         ]
         url = self.url + '/spectrum/restful/model/{}'.format(model_handle)
-        res = requests.put(url, params=updates, auth=self.auth)
+        self._xml = None
+        res = requests.put(url, params=updates, auth=self.auth, verify=self.ssl_verify)
         self._parse_update(res)
 
     # TODO: Parse the response
@@ -257,7 +268,7 @@ class Spectrum(object):
         var_binds = ""
         for key, value in variables.items():
             var_binds += '<rs:varbind id="{}">{}</rs:varbind>'.format(key, value)
-        xml = self.event_by_ip_template.format(event=event, address=address, var_binds=var_binds)
+        self._xml = self.event_by_ip_template.format(event=event, address=address, var_binds=var_binds)
         url = self.url + '/spectrum/restful/events'
-        res = requests.post(url, xml, headers=self.headers, auth=self.auth)
+        res = requests.post(url, self._xml, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
         return res
