@@ -22,6 +22,9 @@ from spectrum_client import Spectrum
 
 oc = Spectrum('http://oneclick.mydomain:8080', 'myuser', 'secret')
 
+# Disable SSL verification, warining will be displayed, defaults to True
+oc.ssl_verify = False
+
 # Update a model attribute
 oc.update_attribute(0x210afa, 0x10024, 'MySNMPSecret')
 
