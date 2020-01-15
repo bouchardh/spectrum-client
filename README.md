@@ -36,6 +36,9 @@ oc.update_attributes(mh, updates)
 # Get a list of devices by name, using regex, restricting the search to landscape 0x200000
 oc.devices_by_name('^SW00', 0x200000)
 
+# Specify list of attributes to return, note that model handle is always returned
+oc.attributes = ['0x1006e', '0x10001', '0x12d7f', '0x12dbc', '0x129e7']
+
 # Get a lis tof devices by specific attribute from all landscapes
 oc.devices_by_attr(0x12db9, 'XYZ001')
 
