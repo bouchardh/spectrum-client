@@ -9,7 +9,21 @@ from requests.auth import HTTPBasicAuth
 SPECTRUM_URL = os.environ.get('SPECTRUM_URL')
 SPECTRUM_USERNAME = os.environ.get('SPECTRUM_USERNAME')
 SPECTRUM_PASSWORD = os.environ.get('SPECTRUM_PASSWORD')
-
+DEFAULT_ATTRIBUTES = [
+    "0x129fa", # Model Handle
+    "0x1006e", # Model Name
+    "0x1000a", # Condition 
+    "0x11ee8", # Model Class
+    "0x129e7", # Site ID
+    "0x12d7f", # IP Address
+    "0x1290c", # Criticality
+    "0x10000", # Model Type Name
+    "0x10001", # Model Type Handle
+    "0x23000e", # Device Type 
+    "0x11d42", # Landscape Name
+    "0x1295d", # isManaged
+    "0x11564", # Notes
+    "0x12db9"] # ServiceDesk Asset ID
 
 class SpectrumClientException(Exception):
     """Raised on OneClick errors"""
@@ -27,23 +41,8 @@ class Spectrum(object):
     """A wrapper form OneClick REST API."""
     headers = {'Content-Type': 'application/xml; charset=UTF-8'}
 
+    attributes = DEFAULT_ATTRIBUTES
     xml_namespace = {'ca': 'http://www.ca.com/spectrum/restful/schema/response'}
-    default_attributes = '''
-    <rs:requested-attribute id="0x129fa"/> <!-- Model Handle -->
-    <rs:requested-attribute id="0x1006e"/> <!-- Model Name -->
-    <rs:requested-attribute id="0x1000a"/> <!-- Condition -->
-    <rs:requested-attribute id="0x11ee8"/> <!-- Model Class -->
-    <rs:requested-attribute id="0x129e7"/> <!-- Site ID -->
-    <rs:requested-attribute id="0x12d7f"/> <!-- IP Address -->
-    <rs:requested-attribute id="0x1290c"/> <!-- Criticality -->
-    <rs:requested-attribute id="0x10000"/> <!-- Model Type Name -->
-    <rs:requested-attribute id="0x10001"/> <!-- Model Type Handle -->
-    <rs:requested-attribute id="0x23000e"/> <!-- Device Type -->
-    <rs:requested-attribute id="0x11d42"/> <!-- Landscape Name-->
-    <rs:requested-attribute id="0x1295d"/> <!-- isManaged-->
-    <rs:requested-attribute id="0x11564"/> <!-- Notes-->
-    <rs:requested-attribute id="0x12db9"/> <!-- ServiceDesk Asset ID-->
-    '''
     models_search_template = '''<?xml version="1.0" encoding="UTF-8"?>
     <rs:model-request throttlesize="9999"
     xmlns:rs="http://www.ca.com/spectrum/restful/schema/request"
@@ -58,8 +57,9 @@ class Spectrum(object):
                 </rs:search-criteria>
             </rs:models-search>
         </rs:target-models>
-    ''' + default_attributes + '</rs:model-request>'
-
+        {models_attributes}
+        </rs:model-request>
+    '''
     event_by_ip_template = '''<?xml version="1.0" encoding="UTF-8"?>
     <rs:event-request throttlesize="10" xmlns:rs="http://www.ca.com/spectrum/restful/schema/request" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.ca.com/spectrum/restful/schema/request ../../../xsd/Request.xsd">
         <rs:event>
@@ -102,6 +102,16 @@ class Spectrum(object):
     def xml(self):
         return self.__xml
 
+    def xml_attributes(self):
+        if self.attributes is None:
+            self.attributes = DEFAULT_ATTRIBUTES
+        xml = ''
+        for attr in self.attributes:
+            if type(attr) is 'int':
+                attr = hex(attr)
+            xml += '<rs:requested-attribute id="{}" />\n'.format(attr)
+        return xml
+    
     def _parse_get(self, res):
         self._check_http_response(res)
 
@@ -153,7 +163,7 @@ class Spectrum(object):
             {landscape_filter}
             {filters}
          </and>'''.format(landscape_filter=landscape_filter, filters=filters)
-        return(self.models_search_template.format(models_filter=models_filter))
+        return(self.models_search_template.format(models_filter=models_filter, models_attributes=self.xml_attributes()))
 
     @staticmethod
     def _check_http_response(res):
