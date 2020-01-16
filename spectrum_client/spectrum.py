@@ -24,6 +24,8 @@ DEFAULT_ATTRIBUTES = [
     "0x1295d", # isManaged
     "0x11564", # Notes
     "0x12db9"] # ServiceDesk Asset ID
+convert_to_hex = ['0x10001', '0x12a56']
+
 
 class SpectrumClientException(Exception):
     """Raised on OneClick errors"""
@@ -112,6 +114,13 @@ class Spectrum(object):
             xml += '<rs:requested-attribute id="{}" />\n'.format(attr)
         return xml
     
+    def _parse_create(self, res):
+        self._check_http_response(res)
+
+        root = ET.fromstring(res.content)
+        if root.get('error') == 'Success':
+            return
+
     def _parse_get(self, res):
         self._check_http_response(res)
 
@@ -165,6 +174,19 @@ class Spectrum(object):
          </and>'''.format(landscape_filter=landscape_filter, filters=filters)
         return(self.models_search_template.format(models_filter=models_filter, models_attributes=self.xml_attributes()))
 
+    def if_int(self, input, attr=None):
+        """Convert to int if possible, otherwis, return string
+           Convert to HEX if in convert_to_hex list
+        """
+        if input is None:
+            return None
+        if not input.isdigit():
+            return input
+        num = int(input)
+        if attr in convert_to_hex:
+            num = hex(num)
+        return num
+
     @staticmethod
     def _check_http_response(res):
         """Validate the HTTP response"""
@@ -189,6 +211,58 @@ class Spectrum(object):
         landscape_start = hex(landscape)
         landscape_end = hex(landscape + 0xfffff)
         return xml.format(landscape_start, landscape_end).strip()
+
+    def add_model(self,modelname, model):
+        '''Create model from dict passed as model'''
+        # Add model name attribute to dict
+        model['0x1006e'] = modelname
+
+        # Set model type to '0x1002d' if not found and no ipaddress
+        if model.get('0x10001') is not None:
+            model['mtypeid'] = model.pop('0x10001')
+        elif model.get('ipaddress') is None:
+            model['mtypeid'] = model.get('mtypeid', '0x1002d')
+
+        # look for parent, if not found, add Universe as parent
+        if not ('parent' in model.keys()):
+            model['parentmh'] = model.get('parentmh', '0x100004')
+        else:
+            modelfilter = [('0x1006e', 'equals', model['parent']), ('0x10001', 'equals','0x1002d' )]
+            result = self.models_by_filters(modelfilter)
+            if len(result) == 0:
+                # parent model handle not found, return None. Raise Exception?
+                return None
+            model['parentmh'] = list(result)[0] # Take first result, TODO: need to track duplicates
+            del model['parent']
+        
+        # set landscapeid to 0x100000 if not found
+        model['landscapeid'] = model.get('landscapeid', '0x100000')
+
+        # if model type is globalcollection, remove parentmh
+        if model.get('mtypeid') == '0x10474':
+            del model['parentmh']
+
+        # Generate URL
+        url = '{}/spectrum/restful/model?'.format(self.url)
+        variables = ''
+
+        for attrib in model:
+            if model[attrib] is None:
+                continue
+            if attrib[:2] == '0x':
+                variables += '&attr=' + attrib + '&val=' + model[attrib]
+            else:
+                variables += '&' + attrib + '=' + model[attrib]
+
+        url += variables[1:]
+
+        # Do API call
+        result = requests.post(url, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
+
+        # Make sure it worked and return mh
+        self._parse_create(result)
+        xmlData = ET.fromstring(result.content)
+        return xmlData.find('ca:model', self.xml_namespace).get('mh')
 
     def get_attribute(self, model_handle, attr_id):
         """Get an attribute from Spectrum model.
@@ -236,7 +310,7 @@ class Spectrum(object):
     def search_models(self, xml):
         """Returns the models matching the xml search"""
         url = '{}/spectrum/restful/models'.format(self.url)
-        self.__xml = xml
+        self.__xml = xml.encode('utf-8')
         res = requests.post(url, self.xml, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
         self._check_http_response(res)
         root = ET.fromstring(res.content)
@@ -246,6 +320,10 @@ class Spectrum(object):
                 attr.get('id'): attr.text for attr in model.getchildren()
             } for model in etmodels
         }
+        # convert number strings to actual numbers, this is possibly a breaking change
+        for model in list(models):
+            for attrib in models[model]:
+                models[model][attrib] = self.if_int(models[model][attrib], attrib)
         return models
 
     def set_maintenance(self, model_handle, on=True):
