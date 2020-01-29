@@ -10,20 +10,20 @@ SPECTRUM_URL = os.environ.get('SPECTRUM_URL')
 SPECTRUM_USERNAME = os.environ.get('SPECTRUM_USERNAME')
 SPECTRUM_PASSWORD = os.environ.get('SPECTRUM_PASSWORD')
 DEFAULT_ATTRIBUTES = [
-    "0x129fa", # Model Handle
-    "0x1006e", # Model Name
-    "0x1000a", # Condition 
-    "0x11ee8", # Model Class
-    "0x129e7", # Site ID
-    "0x12d7f", # IP Address
-    "0x1290c", # Criticality
-    "0x10000", # Model Type Name
-    "0x10001", # Model Type Handle
-    "0x23000e", # Device Type 
-    "0x11d42", # Landscape Name
-    "0x1295d", # isManaged
-    "0x11564", # Notes
-    "0x12db9"] # ServiceDesk Asset ID
+    "0x129fa",  # Model Handle
+    "0x1006e",  # Model Name
+    "0x1000a",  # Condition
+    "0x11ee8",  # Model Class
+    "0x129e7",  # Site ID
+    "0x12d7f",  # IP Address
+    "0x1290c",  # Criticality
+    "0x10000",  # Model Type Name
+    "0x10001",  # Model Type Handle
+    "0x23000e",  # Device Type
+    "0x11d42",  # Landscape Name
+    "0x1295d",  # isManaged
+    "0x11564",  # Notes
+    "0x12db9"]  # ServiceDesk Asset ID
 convert_to_hex = ['0x10001', '0x12a56']
 
 
@@ -118,8 +118,11 @@ class Spectrum(object):
         self._check_http_response(res)
 
         root = ET.fromstring(res.content)
-        if root.get('error') == 'Success':
+        result = root.get('error')
+        if result == 'Success':
             return
+        # Did not get Success
+        raise SpectrumClientParameterError(result)
 
     def _parse_get(self, res):
         self._check_http_response(res)
@@ -214,6 +217,7 @@ class Spectrum(object):
 
     def add_model(self,modelname, model):
         '''Create model from dict passed as model'''
+        self.__xml = ''
         # Add model name attribute to dict
         model['0x1006e'] = modelname
 
@@ -230,8 +234,12 @@ class Spectrum(object):
             modelfilter = [('0x1006e', 'equals', model['parent']), ('0x10001', 'equals','0x1002d' )]
             result = self.models_by_filters(modelfilter)
             if len(result) == 0:
-                # parent model handle not found, return None. Raise Exception?
-                return None
+                # LAN type not found, try Network type
+                modelfilter = [('0x1006e', 'equals', model['parent']), ('0x10001', 'equals','0x1002e' )]
+                result = self.models_by_filters(modelfilter)
+                if len(result) == 0:
+                    # parent model handle not found, return None
+                    return None
             model['parentmh'] = list(result)[0] # Take first result, TODO: need to track duplicates
             del model['parent']
         
@@ -242,22 +250,26 @@ class Spectrum(object):
         if model.get('mtypeid') == '0x10474':
             del model['parentmh']
 
-        # Generate URL
-        url = '{}/spectrum/restful/model?'.format(self.url)
-        variables = ''
+        # if it has asytem description, remove it and the device name
+        if model.get('0x10052') is not None:
+            model.pop('0x10052')
+            model.pop('0x1006e')
 
+        # Generate URL
+        # Refactor with request parameters
+        url = '{}/spectrum/restful/model'.format(self.url)
+        params = []
         for attrib in model:
             if model[attrib] is None:
                 continue
             if attrib[:2] == '0x':
-                variables += '&attr=' + attrib + '&val=' + model[attrib]
+                params.append(('attr', attrib))
+                params.append(('val', model[attrib]))
             else:
-                variables += '&' + attrib + '=' + model[attrib]
-
-        url += variables[1:]
+                params.append((attrib, model[attrib]))
 
         # Do API call
-        result = requests.post(url, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
+        result = requests.post(url, params=params, headers=self.headers, auth=self.auth, verify=self.ssl_verify)
 
         # Make sure it worked and return mh
         self._parse_create(result)
